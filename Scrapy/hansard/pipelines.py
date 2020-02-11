@@ -8,4 +8,4 @@
 
 class HansardPipeline(object):
     def process_item(self, item, spider):
-        return item
+        return print('hello world')

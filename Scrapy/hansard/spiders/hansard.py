@@ -8,11 +8,12 @@ class HansardSpider(scrapy.Spider):
     name = "hansard"
 
     start_urls = [
-        'https://api.parliament.uk/historic-hansard/sittings/1800s',
-        'https://api.parliament.uk/historic-hansard/sittings/1810s',
-        'https://api.parliament.uk/historic-hansard/sittings/1820s',
-        'https://api.parliament.uk/historic-hansard/sittings/1830s',
-        'https://api.parliament.uk/historic-hansard/sittings/1840s'
+        'https://api.parliament.uk/historic-hansard/sittings/1806/mar/'
+        #'https://api.parliament.uk/historic-hansard/sittings/1800s',
+        # 'https://api.parliament.uk/historic-hansard/sittings/1810s',
+        # 'https://api.parliament.uk/historic-hansard/sittings/1820s',
+        # 'https://api.parliament.uk/historic-hansard/sittings/1830s',
+        # 'https://api.parliament.uk/historic-hansard/sittings/1840s'
     ]
 
     def parse(self, response):
