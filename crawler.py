@@ -6,7 +6,7 @@ import scrapy
 from scrapy import Request
 from scrapy.crawler import CrawlerProcess, CrawlerRunner
 
-from config import Config
+from config import config
 
 
 class HansardSpider(scrapy.Spider):
