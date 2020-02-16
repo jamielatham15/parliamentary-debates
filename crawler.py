@@ -1,19 +1,35 @@
 import re
 import json
 
-from dateutil.parser import parse
 import scrapy
 from scrapy import Request
 from scrapy.crawler import CrawlerProcess, CrawlerRunner
 
 from config import config
+from dbmodels import Session, ParliamentarySession, Speech
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def session_scope():
+    """Provide a transactional scope around a series of operations."""
+    session = Session()
+    try:
+        yield session
+        session.commit()
+    except:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
 class HansardSpider(scrapy.Spider):
     name = "hansard"
 
     start_urls = [
-        'https://api.parliament.uk/historic-hansard/sittings/1806/mar/'
+        "https://api.parliament.uk/historic-hansard/sittings/1806/mar/"
         # 'https://api.parliament.uk/historic-hansard/sittings/1800s',
         # 'https://api.parliament.uk/historic-hansard/sittings/1810s',
         # 'https://api.parliament.uk/historic-hansard/sittings/1820s',
@@ -23,7 +39,9 @@ class HansardSpider(scrapy.Spider):
 
     def parse(self, response):
         # follow links to year pages
-        for page in response.xpath("/html/body/div[2]/div[1]/table/tbody/tr[3]/td[*]/a/@href").getall():
+        for page in response.xpath(
+            "/html/body/div[2]/div[1]/table/tbody/tr[3]/td[*]/a/@href"
+        ).getall():
             yield response.follow(page, self.parse)
 
         if len(response.xpath("//*[contains(@href, '.js')]/@href")) != 0:
@@ -31,23 +49,41 @@ class HansardSpider(scrapy.Spider):
             yield response.follow(meta[0], self.parse_metadata)
 
     def parse_metadata(self, response):
-
-        def link_builder(json_record, chamber):
-            if 'commons' in chamber:
-                response_url = response.url.replace('sittings', 'commons')
-            if 'lords' in chamber:
-                response_url = response.url.replace('sittings', 'lords')
-            for section in json_record[chamber]['top_level_sections']:
-                yield response_url.replace('.js', '/' + section['section']['slug'])
-
         body = json.loads(response.body)
-        document = {}
-        document['metadata'] = body
-        document['urls'] = []
         for json_record in body:
             chamber = [key for key in json_record.keys()][0]
-            [document['urls'].append(url) for url in link_builder(json_record, chamber)]
+            if "commons" in chamber:
+                response_url = response.url.replace("sittings", "commons")
+            if "lords" in chamber:
+                response_url = response.url.replace("sittings", "lords")
+            for section in json_record[chamber]["top_level_sections"]:
+                url = response_url.replace(".js", "/" + section["section"]["slug"])
+                section["section"].update({"url": url})
+            self.db_insert(json_record, chamber)
 
+    def db_insert(self, json_record, chamber):
+        with session_scope() as session:
+            js = json_record.get(chamber)
+            parliament_row = ParliamentarySession(
+                hansard_sitting_id=js["id"],
+                chamber=chamber,
+                date=js["top_level_sections"][0]["section"]["date"],
+                year=js["year"],
+            )
+            session.add(parliament_row)
+            session.flush()
+            session.refresh(parliament_row)
+
+            for j in js["top_level_sections"]:
+                speech_row = Speech(
+                    hansard_speech_id=j["section"]["id"],
+                    title=j["section"]["slug"],
+                    speakers=None,
+                    full_text=None,
+                    url=j["section"]["url"],
+                    parliamentary_session_id=parliament_row.id,
+                )
+                session.add(speech_row)
 
     # def save_record(self, response):
     #     page_date = parse(' '.join(re.split('/|[.]', response.url)[-4:-1]))
@@ -56,7 +92,6 @@ class HansardSpider(scrapy.Spider):
     #     filename = f'data/records/session-{page_date}-{page_title}.html'
     #     with open(filename, 'wb') as f:
     #         f.write(response.body)
-
 
     # def save_metadata(self, response, body):
     #     # body = json.loads(response.body)
@@ -69,12 +104,13 @@ class HansardSpider(scrapy.Spider):
     #             json.dump(item, f)
     #             f.write('\n')
 
+
 class SpeechCrawler:
-    
     def save_articles(self):
         process = CrawlerProcess()
         process.crawl(HansardSpider)
         process.start()
+
 
 if __name__ == "__main__":
     speech_crawler = SpeechCrawler()

@@ -10,7 +10,7 @@ class Config:
 
 class LocalConfig(Config):
     database_uri = (
-        'postgresql://postgres:' + passwd + '@localhost/postgres'
+        'postgresql://postgres:' + passwd + '@localhost:5432/postgres'
         )
 
 HOST_CONFIGS = {
