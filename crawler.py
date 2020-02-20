@@ -1,14 +1,16 @@
-import re
 import json
+import re
+from contextlib import contextmanager
 
 import scrapy
+#from newspaper import fulltext
+from bs4 import BeautifulSoup
+from bs4.element import Comment
 from scrapy import Request
 from scrapy.crawler import CrawlerProcess, CrawlerRunner
 
 from config import config
 from dbmodels import Session, ParliamentarySession, Speech
-
-from contextlib import contextmanager
 
 
 @contextmanager
@@ -24,9 +26,8 @@ def session_scope():
     finally:
         session.close()
 
-
-class HansardSpider(scrapy.Spider):
-    name = "hansard"
+class SessionSpider(scrapy.Spider):
+    name = "parliamentary_sessions"
 
     start_urls = [
         "https://api.parliament.uk/historic-hansard/sittings/1806/mar/"
@@ -85,6 +86,52 @@ class HansardSpider(scrapy.Spider):
                 )
                 session.add(speech_row)
 
+def next_url_gen():
+    with session_scope() as session:
+        urls = session.query(Speech.id, Speech.url)
+        url_list = [r for r in urls]
+        for next_url in url_list:
+            yield next_url
+
+def tag_visible(element):
+    if element.parent.name in ['style', 'script', 'head', 'title', 'meta', '[document]']:
+        return False
+    if isinstance(element, Comment):
+        return False
+    return True
+
+def text_from_html(body):
+    soup = BeautifulSoup(body, 'html.parser')
+    texts = soup.findAll(text=True)
+    visible_texts = filter(tag_visible, texts)  
+    return u" ".join(t.strip() for t in visible_texts)
+
+class SpeechSpider(scrapy.Spider):
+    name = "parliamentary_speeches"
+    url = next_url_gen()
+    start_urls = []
+
+    def start_requests(self):
+        start_url = next(self.url)
+        request = Request(start_url[1], cb_kwargs={'PK': start_url[0]})
+        yield request
+
+    def parse(self, response, **cb_kwargs):
+        text = text_from_html(response.body)
+        with session_scope() as session:
+            row = session.query(Speech).filter(
+            Speech.id == cb_kwargs['PK']).first()
+            row.full_text = text
+            session.commit()
+
+        next_url = next(self.url)
+        yield Request(next_url[1], cb_kwargs={'PK': next_url[0]})
+        
+
+
+
+    
+
     # def save_record(self, response):
     #     page_date = parse(' '.join(re.split('/|[.]', response.url)[-4:-1]))
     #     page_date = page_date.strftime(format='%Y%m%d')
@@ -105,13 +152,14 @@ class HansardSpider(scrapy.Spider):
     #             f.write('\n')
 
 
-class SpeechCrawler:
-    def save_articles(self):
+class CrawlerRunner:
+    def start(self, spider):
         process = CrawlerProcess()
-        process.crawl(HansardSpider)
+        process.crawl(spider)
         process.start()
 
 
 if __name__ == "__main__":
-    speech_crawler = SpeechCrawler()
-    speech_crawler.save_articles()
+    hansard_crawler = CrawlerRunner()
+    #speech_crawler.start(SessionSpider)
+    hansard_crawler.start(SpeechSpider)

@@ -5,6 +5,9 @@ from sqlalchemy.orm import relationship, sessionmaker
 
 from config import config
 
+engine = create_engine(config.database_uri)
+Session = sessionmaker(bind=engine)
+
 Base = declarative_base()
 
 class ParliamentarySession(Base):
@@ -28,10 +31,5 @@ class Speech(Base):
     url = Column(String)
     parliamentary_session_id = Column(Integer, ForeignKey('parliamentary_session.id'))
     parliamentary_session = relationship('ParliamentarySession', back_populates='speeches')
-
-
-engine = create_engine(config.database_uri)
-
-Session = sessionmaker(bind=engine)
 
 #Base.metadata.create_all(engine)
