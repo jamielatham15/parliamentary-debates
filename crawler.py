@@ -28,10 +28,12 @@ def session_scope():
 
 class SessionSpider(scrapy.Spider):
     name = "parliamentary_sessions"
+    custom_settings = {
+        'USER_AGENT': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:73.0) Gecko/20100101 Firefox/73.0',
+    }
 
     start_urls = [
-        "https://api.parliament.uk/historic-hansard/sittings/1806/mar/"
-        # 'https://api.parliament.uk/historic-hansard/sittings/1800s',
+        'https://api.parliament.uk/historic-hansard/sittings/1800s',
         # 'https://api.parliament.uk/historic-hansard/sittings/1810s',
         # 'https://api.parliament.uk/historic-hansard/sittings/1820s',
         # 'https://api.parliament.uk/historic-hansard/sittings/1830s',
@@ -88,7 +90,7 @@ class SessionSpider(scrapy.Spider):
 
 def next_url_gen():
     with session_scope() as session:
-        urls = session.query(Speech.id, Speech.url)
+        urls = session.query(Speech.id, Speech.url).filter(Speech.full_text == None)
         url_list = [r for r in urls]
         for next_url in url_list:
             yield next_url
@@ -102,6 +104,8 @@ def tag_visible(element):
 
 def text_from_html(body):
     soup = BeautifulSoup(body, 'html.parser')
+    for el in ['footer', 'header', 'section-navigation']:
+        soup.find('div', id=el).decompose()
     texts = soup.findAll(text=True)
     visible_texts = filter(tag_visible, texts)  
     return u" ".join(t.strip() for t in visible_texts)
@@ -110,10 +114,17 @@ class SpeechSpider(scrapy.Spider):
     name = "parliamentary_speeches"
     url = next_url_gen()
     start_urls = []
+    custom_settings = {
+        'USER_AGENT': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:73.0) Gecko/20100101 Firefox/73.0',
+    }
 
     def start_requests(self):
         start_url = next(self.url)
-        request = Request(start_url[1], cb_kwargs={'PK': start_url[0]})
+        request = Request(start_url[1],
+                         dont_filter=True, 
+                         callback=self.parse, 
+                         errback=self.error_handler, 
+                         cb_kwargs={'PK': start_url[0]})
         yield request
 
     def parse(self, response, **cb_kwargs):
@@ -122,10 +133,25 @@ class SpeechSpider(scrapy.Spider):
             row = session.query(Speech).filter(
             Speech.id == cb_kwargs['PK']).first()
             row.full_text = text
-            session.commit()
-
+            session.add(row)
         next_url = next(self.url)
-        yield Request(next_url[1], cb_kwargs={'PK': next_url[0]})
+        try:
+            yield Request(next_url[1], 
+                          dont_filter=True, 
+                          callback=self.parse, 
+                          errback=self.error_handler, 
+                          cb_kwargs={'PK': next_url[0]})
+        except StopIteration:
+             self.crawler.engine.close_spider(self, reason='finished')
+
+    def error_handler(self, failure):
+        print(failure.value)
+        next_url = next(self.url)
+        yield Request(next_url[1], 
+                      dont_filter=True, 
+                      callback=self.parse, 
+                      errback=self.error_handler, 
+                      cb_kwargs={'PK': next_url[0]})
         
 
 
@@ -160,6 +186,7 @@ class CrawlerRunner:
 
 
 if __name__ == "__main__":
-    hansard_crawler = CrawlerRunner()
-    #speech_crawler.start(SessionSpider)
-    hansard_crawler.start(SpeechSpider)
+    # session_crawler = CrawlerRunner()
+    # session_crawler.start(SessionSpider)
+    speech_crawler = CrawlerRunner()
+    speech_crawler.start(SpeechSpider)
