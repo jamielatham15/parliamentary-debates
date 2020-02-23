@@ -128,19 +128,19 @@ class SpeechSpider(scrapy.Spider):
         yield request
 
     def parse(self, response, **cb_kwargs):
-        text = text_from_html(response.body)
-        with session_scope() as session:
-            row = session.query(Speech).filter(
-            Speech.id == cb_kwargs['PK']).first()
-            row.full_text = text
-            session.add(row)
-        next_url = next(self.url)
         try:
+            text = text_from_html(response.body)
+            with session_scope() as session:
+                row = session.query(Speech).filter(
+                Speech.id == cb_kwargs['PK']).first()
+                row.full_text = text
+                session.add(row)
+            next_url = next(self.url)
             yield Request(next_url[1], 
-                          dont_filter=True, 
-                          callback=self.parse, 
-                          errback=self.error_handler, 
-                          cb_kwargs={'PK': next_url[0]})
+                            dont_filter=True, 
+                            callback=self.parse, 
+                            errback=self.error_handler, 
+                            cb_kwargs={'PK': next_url[0]})
         except StopIteration:
              self.crawler.engine.close_spider(self, reason='finished')
 
